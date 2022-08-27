@@ -1,0 +1,16 @@
+swagger: '2.0'
+info:
+  version: 24.1.3
+  title: Involved Party API
+  description:
+  termsOfService:
+  contact:
+  license:
+consumes: [ application/json ]
+produces: [ application/json ]
+schemes: [ https ]
+host: apis.ing.com
+basePath: /
+paths:
+  /v4/involved-parties/search/agreementIdentifiers:
+definitions:
