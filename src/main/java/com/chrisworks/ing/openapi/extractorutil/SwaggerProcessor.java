@@ -1,10 +1,10 @@
 package com.chrisworks.ing.openapi.extractorutil;
 
-import static com.chrisworks.ing.openapi.extractorutil.Constants.CONST_KEYS;
+import static com.chrisworks.ing.openapi.extractorutil.Constants.V2;
 import static com.chrisworks.ing.openapi.extractorutil.Constants.ENDPOINTS_OF_INTEREST;
-import static com.chrisworks.ing.openapi.extractorutil.Constants.RES_ORDER;
 import static com.chrisworks.ing.openapi.extractorutil.Constants.SWAGGER_FILE_NAME;
 
+import com.chrisworks.ing.openapi.extractorutil.Constants.V3;
 import com.chrisworks.ing.openapi.extractorutil.models.AppException;
 import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFile;
 import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFileType;
@@ -18,14 +18,26 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 import org.yaml.snakeyaml.Yaml;
 
 public final class SwaggerProcessor {
+
+  public static final Gson gson = new Gson();
+  public static final Yaml yaml = new Yaml();
+  public static final BiFunction<Map<String, Object>, List<String>, Map<String, Object>> sorter =
+      (unsortedData, hierarchy) -> {
+        final TreeMap<String, Object> sortedTree = new TreeMap<>(
+            Comparator.comparingInt(hierarchy::indexOf));
+        sortedTree.putAll(unsortedData);
+        return sortedTree;
+      };
 
   private SwaggerProcessor() {
   }
@@ -54,26 +66,25 @@ public final class SwaggerProcessor {
 
     final SwaggerFileType swaggerFileType = SwaggerFileType.fromFileFullName(SWAGGER_FILE_NAME);
 
-    return new SwaggerFile(
-        switch (swaggerFileType) {
-          case JSON -> processAsJSON(swaggerFileInputStream);
-          case YAML -> processAsYAML(swaggerFileInputStream);
-        },
-        swaggerFileType
-    );
+    final Intermediary result = switch (swaggerFileType) {
+      case JSON -> processAsJSON(swaggerFileInputStream);
+      case YAML -> processAsYAML(swaggerFileInputStream);
+    };
+
+    return new SwaggerFile(result.processed, result.raw, swaggerFileType);
   }
 
-  private static String processAsJSON(InputStream inputStream) {
+  private static Intermediary processAsJSON(InputStream inputStream) {
 
     try {
 
       final String jsonString = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-      final Gson gson = new Gson();
       final Type type = new TypeToken<HashMap<String, Object>>() {
       }.getType();
       final Map<String, Object> input = gson.fromJson(jsonString, type);
 
-      return gson.toJson(traverseData(input), type);
+      final Map<String, Object> raw = traverseData(input);
+      return new Intermediary(raw, gson.toJson(raw, type));
 
     } catch (IOException e) {
       e.printStackTrace();
@@ -81,12 +92,12 @@ public final class SwaggerProcessor {
     }
   }
 
-  private static String processAsYAML(InputStream inputStream) {
+  private static Intermediary processAsYAML(InputStream inputStream) {
 
-    final Yaml yaml = new Yaml();
     final Map<String, Object> input = yaml.load(inputStream);
 
-    return yaml.dump(traverseData(input));
+    final Map<String, Object> raw = traverseData(input);
+    return new Intermediary(raw, yaml.dump(raw));
   }
 
   /**
@@ -99,9 +110,10 @@ public final class SwaggerProcessor {
   @SuppressWarnings("unchecked")
   private static Map<String, Object> traverseData(Map<String, Object> input) {
 
+    final boolean isV2 = input.containsKey(Constants.SWAGGER);
     final String PATHS = "paths";
-    final String DEFINITIONS = "definitions";
-    final Map<String, Object> output = CONST_KEYS
+    final String DEFINITIONS = (isV2 ? "definitions" : "components"); //todo: This is bad
+    final Map<String, Object> output = (isV2 ? V2.CONST_KEYS : V3.CONST_KEYS) //todo: This is bad
         .stream()
         .collect(Collectors.toMap(key -> key, input::get));
     final Map<String, Object> paths = (Map<String, Object>) input.get(PATHS);
@@ -123,12 +135,7 @@ public final class SwaggerProcessor {
     output.put(PATHS, pathsOfInterest);
     output.put(DEFINITIONS, defsOfInterest);
 
-    //Sort the map to look like the old one
-    final TreeMap<String, Object> sortedTree = new TreeMap<>(
-        Comparator.comparingInt(RES_ORDER::indexOf));
-    sortedTree.putAll(output);
-
-    return sortedTree;
+    return sorter.apply(output, (isV2 ? V2.RES_ORDER: V3.RES_ORDER)); //todo: This is bad
   }
 
   /**
@@ -206,5 +213,7 @@ public final class SwaggerProcessor {
     System.out.println(liner);
     System.out.println(result.data());
   }
+
+  private record Intermediary(Map<String, Object> raw, String processed) {}
 
 }
