@@ -52,10 +52,15 @@ public final class SwaggerProcessor {
    */
   public static SwaggerFile processFile(InputStream swaggerFileInputStream) {
 
-    return switch (SwaggerFileType.fromFileFullName(SWAGGER_FILE_NAME)) {
-      case JSON -> new SwaggerFile(processAsJSON(swaggerFileInputStream), SwaggerFileType.JSON);
-      case YAML -> new SwaggerFile(processAsYAML(swaggerFileInputStream), SwaggerFileType.YAML);
-    };
+    final SwaggerFileType swaggerFileType = SwaggerFileType.fromFileFullName(SWAGGER_FILE_NAME);
+
+    return new SwaggerFile(
+        switch (swaggerFileType) {
+          case JSON -> processAsJSON(swaggerFileInputStream);
+          case YAML -> processAsYAML(swaggerFileInputStream);
+        },
+        swaggerFileType
+    );
   }
 
   private static String processAsJSON(InputStream inputStream) {
