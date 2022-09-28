@@ -9,19 +9,35 @@ import com.chrisworks.ing.openapi.extractorutil.models.AppException;
 import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFile;
 import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFileType;
 import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonDeserializationContext;
+import com.google.gson.JsonDeserializer;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParseException;
 import com.google.gson.reflect.TypeToken;
+import io.swagger.parser.OpenAPIParser;
+import io.swagger.v3.oas.models.OpenAPI;
+import io.swagger.v3.parser.core.models.SwaggerParseResult;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.Function;
+import java.util.function.UnaryOperator;
 import java.util.stream.Collectors;
 import org.yaml.snakeyaml.Yaml;
 
@@ -29,6 +45,12 @@ public final class SwaggerProcessor {
 
   private SwaggerProcessor() {
   }
+
+  private static final Gson gson = new GsonBuilder().registerTypeAdapter(OffsetDateTime.class,
+      (JsonDeserializer<OffsetDateTime>) (json, typeOfT, context) -> OffsetDateTime.parse(json.getAsString(), DateTimeFormatter.ofPattern("yyyy-MM-ddTHH:mm:ss.SSSZ"))).create();
+  private static final Yaml yaml = new Yaml();
+  private static final Type type = new TypeToken<HashMap<String, Object>>() {
+  }.getType();
 
   /**
    * Reads file from the path specified in {@linkplain Constants#SWAGGER_FILE_NAME}
@@ -68,9 +90,6 @@ public final class SwaggerProcessor {
     try {
 
       final String jsonString = new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
-      final Gson gson = new Gson();
-      final Type type = new TypeToken<HashMap<String, Object>>() {
-      }.getType();
       final Map<String, Object> input = gson.fromJson(jsonString, type);
 
       return gson.toJson(traverseData(input), type);
@@ -83,7 +102,6 @@ public final class SwaggerProcessor {
 
   private static String processAsYAML(InputStream inputStream) {
 
-    final Yaml yaml = new Yaml();
     final Map<String, Object> input = yaml.load(inputStream);
 
     return yaml.dump(traverseData(input));
@@ -191,6 +209,8 @@ public final class SwaggerProcessor {
     return accumulator;
   }
 
+
+  static int m = 1;
   /**
    * This writes our end result back to the path {@linkplain Constants#RESULT_OUTPUT_PATH}
    *
@@ -205,6 +225,67 @@ public final class SwaggerProcessor {
     System.out.println("File Ext: " + result.swaggerFileType().getExtension());
     System.out.println(liner);
     System.out.println(result.data());
+  }
+
+  public static SwaggerFile convertToV3(final SwaggerFile file) {
+
+    final SwaggerParseResult result = new OpenAPIParser().readContents(file.data(),
+        null, null);
+
+    //If there are errors, just print them to the console
+    if (result.getMessages() != null && !result.getMessages().isEmpty())
+      result.getMessages().forEach(System.err::println);
+
+    final OpenAPI openAPI = result.getOpenAPI();
+    final Map<String, Object> openapi = new HashMap<>();
+
+    cleanUpNullKeyValues(openAPI.getOpenapi())
+        .ifPresent(version -> openapi.put("openapi", version));
+    cleanUpNullKeyValues(openAPI.getInfo())
+        .ifPresent(info -> openapi.put("info", info));
+    cleanUpNullKeyValues(openAPI.getExtensions())
+        .ifPresent(extensions -> openapi.put("extensions", extensions));
+    cleanUpNullKeyValues(openAPI.getExternalDocs())
+        .ifPresent(externalDoc -> openapi.put("externalDocumentations", externalDoc));
+    cleanUpNullKeyValues(openAPI.getTags())
+        .ifPresent(tags -> openapi.put("tags", tags));
+    cleanUpNullKeyValues(openAPI.getPaths())
+        .ifPresent(paths -> openapi.put("paths", paths));
+//    cleanUpNullKeyValues(openAPI.getComponents())
+//        .ifPresent(components -> openapi.put("components", components));
+    cleanUpNullKeyValues(openAPI.getSecurity())
+        .ifPresent(security -> openapi.put("security", security));
+
+    return new SwaggerFile(
+        switch (file.swaggerFileType()) {
+          case JSON -> gson.toJson(openapi, type);
+          case YAML -> yaml.dump(openapi);
+        },
+        file.swaggerFileType()
+    );
+  }
+
+  /**
+   * Function to help clean up the DS by removing keys whose values are nulls
+   * @param data This is the data to be checked, could be of any type.
+   *            If it is a map, it will be traversed over again
+   * @return Object, which could be of any type
+   */
+  @SuppressWarnings("unchecked")
+  private static Optional<Object> cleanUpNullKeyValues(final Object data) {
+
+    final String dataAsString = String.valueOf(data);
+    if (dataAsString.equalsIgnoreCase("null") || dataAsString.equalsIgnoreCase("{}"))
+      return Optional.empty();
+    if (dataAsString.contains("class")) {
+      final Map<String, Object> intermediate = new HashMap<>();
+      ((Map<String, Object>) gson.fromJson(gson.toJson(data), type))
+          .forEach((key, value) ->
+              cleanUpNullKeyValues(value).ifPresent(res -> intermediate.put(key, res)));
+
+      return intermediate.isEmpty() ? Optional.empty() : Optional.of(intermediate);
+    }
+    else return Optional.of(data);
   }
 
 }

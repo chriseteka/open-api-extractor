@@ -13,7 +13,7 @@ public final class Constants {
   public static final String RESULT_OUTPUT_PATH = "../openapi";
 
   //For now you are allowed to change the list and the file name
-  public static final String SWAGGER_FILE_NAME = "sample.yaml";
+  public static final String SWAGGER_FILE_NAME = "v2.yaml";
   public static final List<String> ENDPOINTS_OF_INTEREST = List.of("/v4/involved-parties/search/agreementIdentifiers");
 
 }
