@@ -176,16 +176,14 @@ public final class SwaggerProcessor {
   private static Map<String, Object> retrieveDefinitions(Map<String, Object> definitions,
       Set<String> refs, Map<String, Object> accumulator) {
 
-    final Set<String> alreadyLooped = new HashSet<>();
     do {
       final String key = refs.iterator().next();
       final Object value = definitions.get(key);
       if (value != null) {
         accumulator.put(key, value);
-        alreadyLooped.add(key);
         drillForRefs((Map<String, Object>) value, refs);
       }
-      refs.removeAll(alreadyLooped);
+      refs.remove(key);
     } while (!refs.isEmpty());
 
     return accumulator;
