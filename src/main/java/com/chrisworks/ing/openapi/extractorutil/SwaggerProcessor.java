@@ -31,7 +31,7 @@ import org.yaml.snakeyaml.Yaml;
 
 public final class SwaggerProcessor {
   
-  static final Logger logger = Logger.getAnonymousLogger();
+  static final Logger logger = Logger.getGlobal();
 
   private SwaggerProcessor() {
   }
@@ -212,7 +212,7 @@ public final class SwaggerProcessor {
       logger.info(liner);
       logger.info("File Type: %s".formatted(swaggerFileType));
       logger.info(liner);
-      logger.info("File Ext: " + swaggerFileType.getExtension());
+      logger.info("File Ext: %s".formatted(swaggerFileType.getExtension()));
       logger.info(liner);
       logger.info(data);
     }
@@ -221,7 +221,7 @@ public final class SwaggerProcessor {
     try (final BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
       writer.write(data);
       logger.info("Extraction completed");
-      logger.fine("Result written to the file: %s".formatted(fileName));
+      logger.info("Result written to the file: %s".formatted(fileName));
     } catch (IOException e) {
       throw new AppException("Failed to write results with reason: " + e.getMessage());
     }
