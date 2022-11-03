@@ -2,6 +2,7 @@ package com.chrisworks.ing.openapi.extractorutil;
 
 import static com.chrisworks.ing.openapi.extractorutil.Constants.CONST_KEYS;
 import static com.chrisworks.ing.openapi.extractorutil.Constants.ENDPOINTS_OF_INTEREST;
+import static com.chrisworks.ing.openapi.extractorutil.Constants.RESULT_OUTPUT_PATH;
 import static com.chrisworks.ing.openapi.extractorutil.Constants.RES_ORDER;
 import static com.chrisworks.ing.openapi.extractorutil.Constants.SWAGGER_FILE_NAME;
 
@@ -10,6 +11,8 @@ import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFile;
 import com.chrisworks.ing.openapi.extractorutil.models.SwaggerFileType;
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
+import java.io.BufferedWriter;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Type;
@@ -22,10 +25,13 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.yaml.snakeyaml.Yaml;
 
 public final class SwaggerProcessor {
+  
+  static final Logger logger = Logger.getAnonymousLogger();
 
   private SwaggerProcessor() {
   }
@@ -195,14 +201,31 @@ public final class SwaggerProcessor {
    * @param result {@link SwaggerFile}
    */
   public static void writeFile(final SwaggerFile result) {
-    final String liner = "------------------------------------------";
-    System.out.println("File Name: " + SWAGGER_FILE_NAME);
-    System.out.println(liner);
-    System.out.println("File Type: " + result.swaggerFileType());
-    System.out.println(liner);
-    System.out.println("File Ext: " + result.swaggerFileType().getExtension());
-    System.out.println(liner);
-    System.out.println(result.data());
+
+    //WE may want to read this from the properties file as well
+    final boolean debug = false;
+    final String data = result.data();
+    final SwaggerFileType swaggerFileType = result.swaggerFileType();
+    if (debug) {
+      final String liner = "------------------------------------------";
+      logger.info("File Name: " + SWAGGER_FILE_NAME);
+      logger.info(liner);
+      logger.info("File Type: %s".formatted(swaggerFileType));
+      logger.info(liner);
+      logger.info("File Ext: " + swaggerFileType.getExtension());
+      logger.info(liner);
+      logger.info(data);
+    }
+
+    final String fileName = "%s/%s-output%s".formatted(RESULT_OUTPUT_PATH, SWAGGER_FILE_NAME, swaggerFileType.getExtension());
+    try (final BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+      writer.write(data);
+      logger.info("Extraction completed");
+      logger.fine("Result written to the file: %s".formatted(fileName));
+    } catch (IOException e) {
+      throw new AppException("Failed to write results with reason: " + e.getMessage());
+    }
+
   }
 
 }
