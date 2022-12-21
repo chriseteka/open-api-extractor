@@ -106,28 +106,23 @@ public final class SwaggerProcessor {
   private static Map<String, Object> traverseData(Map<String, Object> input) {
 
     final String PATHS = "paths";
+    final String RESPONSES = "responses";
+    final String PARAMETERS = "parameters";
     final String DEFINITIONS = "definitions";
     final Map<String, Object> output = CONST_KEYS
         .stream()
         .collect(Collectors.toMap(key -> key, input::get));
-    final Map<String, Object> paths = (Map<String, Object>) input.get(PATHS);
-    final Map<String, Object> definitions = (Map<String, Object>) input.get(DEFINITIONS);
-    final Map<String, Object> defsOfInterest = new HashMap<>();
+    final Map<String, Object> responses = (Map<String, Object>) input.get(RESPONSES);
 
-    final Map<String, Object> pathsOfInterest = ENDPOINTS_OF_INTEREST
-        .stream()
-        .collect(Collectors.toMap(key -> key, key -> {
-          final Object endpointOfInterest = (paths).getOrDefault(key, "");
-          if (endpointOfInterest instanceof Map) {
-            final Set<String> initialRefs = drillForRefs((Map<String, Object>) endpointOfInterest,
-                new HashSet<>());
-            defsOfInterest.putAll(retrieveDefinitions(definitions, initialRefs, new HashMap<>()));
-          }
-          return endpointOfInterest;
-        }));
+    final PathsAndRefs pathsAndRefs = extractPathsAndRefFrom((Map<String, Object>) input.get(PATHS), responses);
+    final Map<String, Object> responsesOfInterest = pathsAndRefs.fromRefsFilterFor(responses);
+    final Map<String, Object> defsOfInterest = pathsAndRefs.fromRefsFilterFor((Map<String, Object>) input.get(DEFINITIONS));
+    final Map<String, Object> paramsOfInterest = pathsAndRefs.fromRefsFilterFor((Map<String, Object>) input.get(PARAMETERS));
 
-    output.put(PATHS, pathsOfInterest);
+    output.put(PATHS, pathsAndRefs.paths);
     output.put(DEFINITIONS, defsOfInterest);
+    output.put(PARAMETERS, paramsOfInterest);
+    output.put(RESPONSES, responsesOfInterest);
 
     //Sort the map to look like the old one
     final TreeMap<String, Object> sortedTree = new TreeMap<>(
@@ -135,6 +130,28 @@ public final class SwaggerProcessor {
     sortedTree.putAll(output);
 
     return sortedTree;
+  }
+
+  @SuppressWarnings("unchecked")
+  private static PathsAndRefs extractPathsAndRefFrom(Map<String, Object> paths, Map<String, Object> responses) {
+    return ENDPOINTS_OF_INTEREST
+        .stream()
+        .map(key -> {
+          final Object endpointOfInterest = (paths).getOrDefault(key, "");
+          final PathsAndRefs initPathAndRef = new PathsAndRefs(Map.of(key, endpointOfInterest));
+          if (endpointOfInterest instanceof Map) {
+            final Set<String> initialRefs = drillForRefs((Map<String, Object>) endpointOfInterest,
+                new HashSet<>());
+            initPathAndRef.withRefs(initialRefs);
+          }
+          //Because response sometimes contains definitions, we need to make sure its refs are passed on
+          if (!responses.isEmpty()) {
+            final Set<String> responsesRefs = drillForRefs(responses, new HashSet<>());
+            initPathAndRef.addRefs(responsesRefs);
+          }
+          return initPathAndRef;
+        })
+        .reduce(PathsAndRefs.empty(), PathsAndRefs::merge);
   }
 
   /**
@@ -148,12 +165,16 @@ public final class SwaggerProcessor {
   private static Set<String> drillForRefs(Map<String, Object> dataOfInterest, Set<String> acc) {
 
     final String REF = "$ref";
-    final String REF_VALUE_TEMPLATE = "#/definitions/";
+    final String REF_VALUE_TEMPLATE_DEF = "#/definitions/";
+    final String REF_VALUE_TEMPLATE_PAR = "#/parameters/";
+    final String REF_VALUE_TEMPLATE_RES = "#/responses/";
 
     dataOfInterest.forEach((key, value) -> {
 
       if (key.equalsIgnoreCase(REF) && value instanceof String) {
-        acc.add(String.valueOf(value).replace(REF_VALUE_TEMPLATE, ""));
+        acc.add(String.valueOf(value).replace(REF_VALUE_TEMPLATE_DEF, "")
+            .replace(REF_VALUE_TEMPLATE_PAR, "")
+            .replace(REF_VALUE_TEMPLATE_RES, ""));
       } else if (value instanceof Map) {
         drillForRefs((Map<String, Object>) value, acc);
       } else if (value instanceof ArrayList) {
@@ -226,6 +247,41 @@ public final class SwaggerProcessor {
       throw new AppException("Failed to write results with reason: " + e.getMessage());
     }
 
+  }
+
+  private record PathsAndRefs(Map<String, Object> paths, Set<String> refs) {
+
+    private PathsAndRefs(Map<String, Object> paths) {
+      this(paths, new HashSet<>());
+    }
+
+    private void withRefs(Set<String> initRefs) {
+      refs.addAll(initRefs);
+    }
+
+    private PathsAndRefs merge(PathsAndRefs another) {
+      refs.addAll(another.refs);
+      paths.putAll(another.paths);
+      return this;
+    }
+
+    private static PathsAndRefs empty() {
+      return new PathsAndRefs(new HashMap<>(), new HashSet<>());
+    }
+
+    private Set<String> aCopyOfRefs() {
+      return new HashSet<>(refs);
+    }
+
+    private Map<String, Object> fromRefsFilterFor(Map<String, Object> filterMap) {
+      if (filterMap.isEmpty())
+        return filterMap;
+      return retrieveDefinitions(filterMap, aCopyOfRefs(), new HashMap<>());
+    }
+
+    public void addRefs(Set<String> responsesRefs) {
+      refs.addAll(responsesRefs);
+    }
   }
 
 }
