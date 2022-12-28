@@ -18,22 +18,32 @@ import java.io.InputStream;
 import java.lang.reflect.Type;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.function.BiFunction;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import org.yaml.snakeyaml.Yaml;
 
 public final class SwaggerProcessor {
-  
+
+  private static ProcessorConfig processorConfig = new ProcessorConfig("");
   static final Logger logger = Logger.getGlobal();
 
   private SwaggerProcessor() {
+  }
+
+  public static Optional<Boolean> withConfiguration(ProcessorConfig processorConfig) {
+    SwaggerProcessor.processorConfig = processorConfig;
+    return Optional.of(processorConfig.isValid());
   }
 
   /**
@@ -45,6 +55,11 @@ public final class SwaggerProcessor {
     return Optional
         .ofNullable(SwaggerProcessor.class.getClassLoader()
             .getResourceAsStream(SWAGGER_FILE_NAME));
+  }
+
+  @SuppressWarnings("ignored")
+  public static Optional<InputStream> loadFile(Boolean ignoredB) {
+    return loadFile();
   }
 
   /**
@@ -112,12 +127,30 @@ public final class SwaggerProcessor {
     final Map<String, Object> output = CONST_KEYS
         .stream()
         .collect(Collectors.toMap(key -> key, input::get));
-    final Map<String, Object> responses = (Map<String, Object>) input.get(RESPONSES);
+    final BiFunction<String, Map<String, Object>, Map<String, Object>> safelyReadKey = (key, inputData) ->
+        Optional.ofNullable(inputData.get(key)).map(d -> (Map<String, Object>) d).orElse(Collections.emptyMap());
+    final Map<String, Object> responses = safelyReadKey.apply(RESPONSES, input);
 
-    final PathsAndRefs pathsAndRefs = extractPathsAndRefFrom((Map<String, Object>) input.get(PATHS), responses);
+    //We can do better here, avoid setting this to 'true' for your own good
+    if (processorConfig.isValid()) {
+      input.computeIfPresent(PATHS, (str, obj) -> ((Map<String, Object>) obj)
+          .entrySet()
+          .stream()
+          .map(data -> {
+            final Map<String, Object> res = safelyReadKey.apply(
+                processorConfig.methodToSelectOnDuplicate,
+                (Map<String, Object>) data.getValue());
+            return Map.entry(data.getKey(), Map.of(processorConfig.methodToSelectOnDuplicate, res));
+          })
+          .collect(Collectors.toMap(Entry::getKey, Entry::getValue))
+      );
+    }
+
+
+    final PathsAndRefs pathsAndRefs = extractPathsAndRefFrom(safelyReadKey.apply(PATHS, input), responses);
     final Map<String, Object> responsesOfInterest = pathsAndRefs.fromRefsFilterFor(responses);
-    final Map<String, Object> defsOfInterest = pathsAndRefs.fromRefsFilterFor((Map<String, Object>) input.get(DEFINITIONS));
-    final Map<String, Object> paramsOfInterest = pathsAndRefs.fromRefsFilterFor((Map<String, Object>) input.get(PARAMETERS));
+    final Map<String, Object> defsOfInterest = pathsAndRefs.fromRefsFilterFor(safelyReadKey.apply(DEFINITIONS, input));
+    final Map<String, Object> paramsOfInterest = pathsAndRefs.fromRefsFilterFor(safelyReadKey.apply(PARAMETERS, input));
 
     output.put(PATHS, pathsAndRefs.paths);
     output.put(DEFINITIONS, defsOfInterest);
@@ -238,7 +271,8 @@ public final class SwaggerProcessor {
       logger.info(data);
     }
 
-    final String fileName = "%s/%s-output%s".formatted(RESULT_OUTPUT_PATH, SWAGGER_FILE_NAME, swaggerFileType.getExtension());
+    final String newFileName = SWAGGER_FILE_NAME.replaceAll(swaggerFileType.getExtension(), "");
+    final String fileName = "%s/%s-output%s".formatted(RESULT_OUTPUT_PATH, newFileName, swaggerFileType.getExtension());
     try (final BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
       writer.write(data);
       logger.info("Extraction completed");
@@ -281,6 +315,12 @@ public final class SwaggerProcessor {
 
     public void addRefs(Set<String> responsesRefs) {
       refs.addAll(responsesRefs);
+    }
+  }
+  public record ProcessorConfig(String methodToSelectOnDuplicate) {
+    private boolean isValid() {
+      return List.of("GET", "POST", "PATCH", "PUT", "DELETE")
+          .contains(methodToSelectOnDuplicate.toUpperCase());
     }
   }
 

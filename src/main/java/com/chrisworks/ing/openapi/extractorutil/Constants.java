@@ -13,7 +13,8 @@ public final class Constants {
   public static final String RESULT_OUTPUT_PATH = "gen";
 
   //For now you are allowed to change the list and the file name (Read all these from class path)
-  public static final String SWAGGER_FILE_NAME = "ProductAgreements-API-14.1.0.yaml";
-  public static final List<String> ENDPOINTS_OF_INTEREST = List.of("/v6/agreements/products/lookup");
+  public static final String SWAGGER_FILE_NAME = "Involved-Party-API-26.2.6.yaml";
+  public static final List<String> ENDPOINTS_OF_INTEREST = List.of("/v6/involved-parties/{uuid}",
+      "/v5/involved-parties/{uuid}/external-identifiers");
 
 }
